@@ -571,7 +571,6 @@
     .sig-m em{font-family:var(--f-serif);font-style:italic;font-size:17px;letter-spacing:0;color:var(--ink);margin-left:3px;}
     .pb{flex:0 0 72%;padding:10px 12px;}
     .pb small{display:none;}
-    #viewtools{display:none;}
   }
 
   /* ===== Compact header (v6) — overrides earlier hero rules ===== */
@@ -618,6 +617,17 @@
     .hero .byline{display:block;margin-left:0;font-size:10px;}
     .hero .byline span{display:none;}
     .byline em{font-size:15px;}
+  }
+
+
+  #viewport{touch-action:none;}
+  @media (max-width:760px){
+    #viewtools{top:auto;bottom:calc(14px + env(safe-area-inset-bottom,0px));right:12px;}
+    #viewtools .hint{display:none;}
+    .zoom-controls{box-shadow:0 6px 18px -6px rgba(0,0,0,.45);}
+    .zoom-controls button{width:32px;height:32px;font-size:15px;}
+    .zoom-pct{min-width:34px;font-size:10.5px;}
+    #minimap{display:none;}
   }
 </style>
 
@@ -3971,19 +3981,23 @@ const regionnav = document.getElementById('regionnav');
 const mmCanvas = document.getElementById('mm-canvas');
 const mmViewport = document.getElementById('mm-viewport');
 
-let scale = 0.55, minScale = 0.12, maxScale = 1.4;
+let scale = 0.55, minScale = 0.03, maxScale = 1.6;
 let panX = 60, panY = 20;
 let isPanning = false, startX=0, startY=0, startPanX=0, startPanY=0;
 let WORLD_W = 4000, WORLD_H = 2000;
 let regionTargets = {};
 
+const isMobile = () => false; /* canvas mode on every screen size */
+const isNarrow = () => !!(window.matchMedia && matchMedia('(max-width: 760px)').matches);
 function applyTransform(){
+  if(isMobile()){ canvas.style.transform = 'none'; return; }
   canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
   document.getElementById('zoom-pct').textContent = Math.round(scale*100) + '%';
   updateMinimap();
 }
 
 viewport.addEventListener('mousedown', (e)=>{
+  if(isMobile()) return;
   isPanning = true;
   viewport.classList.add('grabbing');
   startX = e.clientX; startY = e.clientY;
@@ -3998,6 +4012,7 @@ window.addEventListener('mousemove', (e)=>{
 window.addEventListener('mouseup', ()=>{ isPanning=false; viewport.classList.remove('grabbing'); });
 
 viewport.addEventListener('wheel', (e)=>{
+  if(isMobile()) return;
   e.preventDefault();
   const rect = viewport.getBoundingClientRect();
   const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -4038,7 +4053,18 @@ function openReadable(){
   applyTransform();
 }
 
+/* Landing view: phones see the whole board; desktop opens every playbook at the same
+   overview zoom (14% at a 1000px-wide view, scaled with width), anchored top-left. */
+function landingView(){
+  if(isNarrow()){ fitAll(); return; }
+  const rect = viewport.getBoundingClientRect();
+  scale = Math.min(maxScale, Math.max(minScale, rect.width * 0.00014));
+  panX = 40; panY = 24;
+  applyTransform();
+}
+
 function fitAll(){
+  if(isMobile()){ applyTransform(); return; }
   const rect = viewport.getBoundingClientRect();
   const s = Math.min(rect.width/WORLD_W, rect.height/WORLD_H) * 0.96;
   scale = Math.max(minScale, Math.min(maxScale, s));
@@ -4074,6 +4100,11 @@ function measureAll(){
 }
 
 function jumpToRegion(key){
+  if(isMobile()){
+    const node = document.getElementById(key) || document.getElementById('region-'+key);
+    if(node) node.scrollIntoView({behavior:'smooth', block:'start', inline:'start'});
+    return;
+  }
   const t = regionTargets[key];
   if(!t) return;
   const rect = viewport.getBoundingClientRect();
@@ -4087,6 +4118,7 @@ function jumpToRegion(key){
 regionnav.addEventListener('click', (e)=>{
   const p = e.target.closest('.pill');
   if(!p) return;
+  if(isNarrow()) p.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
   jumpToRegion(p.getAttribute('data-region'));
 });
 
@@ -4144,7 +4176,8 @@ function loadBoard(name){
   requestAnimationFrame(()=>{
     measureAll();
     buildMinimapRegions();
-    fitAll();
+    landingView();
+    if(isMobile()) window.scrollTo(0,0);
   });
 }
 
@@ -4159,6 +4192,48 @@ document.querySelectorAll('.pb').forEach(t=>{
 });
 
 document.getElementById('viewtools').addEventListener('mousedown', e=>e.stopPropagation());
+document.getElementById('viewtools').addEventListener('touchstart', e=>e.stopPropagation(), {passive:true});
+
+/* Touch: one finger pans, two fingers pinch-zoom around their midpoint, double-tap zooms in */
+(function(){
+  let mode = null, sx=0, sy=0, spx=0, spy=0, sDist=1, sScale=1, wx=0, wy=0, lastTap=0;
+  const rel = t => { const r = viewport.getBoundingClientRect(); return {x:t.clientX - r.left, y:t.clientY - r.top}; };
+  const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+  function startPan(t){ const p = rel(t); mode='pan'; sx=p.x; sy=p.y; spx=panX; spy=panY; }
+  function startPinch(t0,t1){
+    const a=rel(t0), b=rel(t1); mode='pinch'; sDist=Math.max(1,dist(a,b)); sScale=scale;
+    const m={x:(a.x+b.x)/2, y:(a.y+b.y)/2}; wx=(m.x-panX)/scale; wy=(m.y-panY)/scale;
+  }
+  viewport.addEventListener('touchstart', e=>{
+    if(e.touches.length===1){
+      const now=Date.now(), p=rel(e.touches[0]);
+      if(now-lastTap<300){
+        const ns=Math.min(maxScale, Math.max(scale*2, 0.45));
+        const px=(p.x-panX)/scale, py=(p.y-panY)/scale;
+        scale=ns; panX=p.x-px*scale; panY=p.y-py*scale; applyTransform(); lastTap=0; mode=null; e.preventDefault(); return;
+      }
+      lastTap=now; startPan(e.touches[0]);
+    } else if(e.touches.length===2){ startPinch(e.touches[0], e.touches[1]); }
+  }, {passive:false});
+  viewport.addEventListener('touchmove', e=>{
+    if(!mode) return; e.preventDefault();
+    if(mode==='pan' && e.touches.length===1){
+      const p=rel(e.touches[0]); panX=spx+(p.x-sx); panY=spy+(p.y-sy); applyTransform();
+    } else if(e.touches.length===2){
+      if(mode!=='pinch') startPinch(e.touches[0], e.touches[1]);
+      const a=rel(e.touches[0]), b=rel(e.touches[1]);
+      const m={x:(a.x+b.x)/2, y:(a.y+b.y)/2};
+      scale=Math.min(maxScale, Math.max(minScale, sScale*dist(a,b)/sDist));
+      panX=m.x-wx*scale; panY=m.y-wy*scale; applyTransform();
+    }
+  }, {passive:false});
+  viewport.addEventListener('touchend', e=>{
+    if(e.touches.length===1) startPan(e.touches[0]); else if(e.touches.length===0) mode=null;
+  });
+  if(window.matchMedia && matchMedia('(pointer: coarse)').matches){
+    const h=document.querySelector('#viewtools .hint'); if(h) h.textContent='Pinch to zoom · drag to explore';
+  }
+})();
 
 /* Theme switch — follows the system until the viewer picks; remembered when storage allows */
 (function(){
@@ -4177,7 +4252,8 @@ document.getElementById('viewtools').addEventListener('mousedown', e=>e.stopProp
 })();
 
 /* Init — measure after layout & fonts settle */
-window.addEventListener('resize', ()=>{ measureAll(); applyTransform(); });
+let wasMobile = isMobile();
+window.addEventListener('resize', ()=>{ measureAll(); const m = isMobile(); if(m !== wasMobile){ wasMobile = m; fitAll(); } else applyTransform(); });
 
 function init(){
   loadBoard('ideation');
