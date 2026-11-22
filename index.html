@@ -1,4 +1,3 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Product Lifecycle Framework</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -4080,8 +4079,14 @@ function openReadable(){
 /* Landing view: phones see the whole board; desktop opens every playbook at the same
    overview zoom (14% at a 1000px-wide view, scaled with width), anchored top-left. */
 function landingView(){
-  if(isNarrow()){ fitAll(); return; }
   const rect = viewport.getBoundingClientRect();
+  if(isNarrow()){
+    /* phones: 15% at a 390px-wide screen, scaled with width, anchored top-left */
+    scale = Math.min(maxScale, Math.max(minScale, rect.width * 0.000385));
+    panX = 2; panY = 12;
+    applyTransform();
+    return;
+  }
   scale = Math.min(maxScale, Math.max(minScale, rect.width * 0.00014));
   panX = 40; panY = 24;
   applyTransform();
@@ -4298,5 +4303,4 @@ if(document.fonts && document.fonts.ready){
 }
 </script>
 
-</body></html>
 </body></html>
